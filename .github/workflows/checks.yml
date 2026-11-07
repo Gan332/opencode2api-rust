@@ -75,7 +75,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build release binary
         shell: bash
-        run: cargo build --release --locked
+        run: cargo build --release
       - name: Verify single-file executable
         shell: bash
         run: |

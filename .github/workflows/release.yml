@@ -111,9 +111,9 @@ jobs:
           RUSTFLAGS: ${{ matrix.rustflags }}
         run: |
           if [[ "${{ matrix.cross }}" == "true" ]]; then
-            cross build --release --locked --target "${{ matrix.target }}"
+            cross build --release --target "${{ matrix.target }}"
           else
-            cargo build --release --locked --target "${{ matrix.target }}"
+            cargo build --release --target "${{ matrix.target }}"
           fi
       - name: Package
         id: package

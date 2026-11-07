@@ -13,13 +13,12 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+async-compression = { version = "0.4", features = ["tokio", "gzip", "deflate", "brotli", "zstd"] }
 async-trait = "0.1"
 axum = { version = "0.8", features = ["http1", "json", "tokio"] }
 base64 = "0.22"
 boringtun = "0.6"
-brotli = "7"
 bytes = "1"
-flate2 = "1"
 futures-util = "0.3"
 hex = "0.4"
 http = "1"
@@ -31,7 +30,7 @@ once_cell = "1"
 parking_lot = "0.12"
 rand = "0.8"
 regex = "1"
-rust-embed = { version = "8", features = ["compressed"] }
+rust-embed = { version = "8", features = ["compression"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = "1"
 serde = { version = "1", features = ["derive"] }
@@ -50,7 +49,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 webpki-roots = "0.26"
 x25519-dalek = { version = "=2.0.0-rc.3", features = ["static_secrets"] }
-zstd = "0.13"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

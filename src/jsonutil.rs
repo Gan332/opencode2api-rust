@@ -110,6 +110,41 @@ pub fn any_at<'a>(object: &'a JMap, path: &[&str]) -> Option<&'a Value> {
     value
 }
 
+pub fn map_of<'a>(object: &'a JMap, key: &str) -> Option<&'a JMap> {
+    object.get(key).and_then(Value::as_object)
+}
+
+pub fn get_str(object: &JMap, key: &str) -> String {
+    object
+        .get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+pub fn get_bool(object: &JMap, key: &str) -> bool {
+    object.get(key).and_then(Value::as_bool).unwrap_or(false)
+}
+
+pub fn get_int(object: &JMap, key: &str) -> i64 {
+    match object.get(key) {
+        Some(Value::Number(number)) => number
+            .as_i64()
+            .or_else(|| number.as_f64().map(|value| value as i64))
+            .unwrap_or(0),
+        Some(Value::Bool(value)) => i64::from(*value),
+        _ => 0,
+    }
+}
+
+pub fn first_of(left: String, right: String) -> String {
+    if left.trim().is_empty() {
+        right
+    } else {
+        left
+    }
+}
+
 pub fn first_string(values: &[String]) -> String {
     values
         .iter()
@@ -118,6 +153,3 @@ pub fn first_string(values: &[String]) -> String {
         .unwrap_or_default()
         .to_string()
 }
-
-/// Percent-encodes nothing; placeholders for the Go helpers that are not used
-/// by the Rust port remain absent rather than duplicated.

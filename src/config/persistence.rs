@@ -53,6 +53,37 @@ pub fn save_atomic(path: &str, cfg: &Config) -> Result<()> {
     Ok(())
 }
 
+pub fn save_bytes_atomic(path: &str, data: &[u8]) -> Result<()> {
+    let target = Path::new(path);
+    let directory = target.parent().unwrap_or_else(|| Path::new("."));
+    let temp = directory.join(format!(".write-{}.tmp", random_suffix()));
+    write_synced(&temp, data)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(0o600));
+    }
+    #[cfg(windows)]
+    {
+        if target.exists() {
+            let staged = directory.join(format!(".write-old-{}.tmp", random_suffix()));
+            fs::rename(target, &staged).context("stage current file")?;
+            if let Err(error) = fs::rename(&temp, target) {
+                let _ = fs::rename(&staged, target);
+                let _ = fs::remove_file(&temp);
+                return Err(anyhow!("replace file: {error}"));
+            }
+            let _ = fs::remove_file(staged);
+            return Ok(());
+        }
+    }
+    if let Err(error) = fs::rename(&temp, target) {
+        let _ = fs::remove_file(&temp);
+        return Err(anyhow!("replace file: {error}"));
+    }
+    Ok(())
+}
+
 fn write_synced(path: &Path, data: &[u8]) -> Result<()> {
     let mut file = fs::File::create(path).context("create temporary config")?;
     file.write_all(data).context("write temporary config")?;

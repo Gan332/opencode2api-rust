@@ -14,7 +14,6 @@ use rand::RngCore;
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, RootCertStore};
 use std::collections::HashMap;
-use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
@@ -211,7 +210,7 @@ pub struct Transport {
     tls: Arc<ClientConfig>,
     proxy_tls: Arc<ClientConfig>,
     direct: Arc<DirectDialer>,
-    idle: parking_lot::Mutex<HashMap<String, Vec<IdleConn>>>,
+    idle: Arc<parking_lot::Mutex<HashMap<String, Vec<IdleConn>>>>,
 }
 
 impl Transport {
@@ -227,7 +226,7 @@ impl Transport {
             tls,
             proxy_tls,
             direct: Arc::new(DirectDialer::new(Duration::from_secs(30))),
-            idle: parking_lot::Mutex::new(HashMap::new()),
+            idle: Arc::new(parking_lot::Mutex::new(HashMap::new())),
         })
     }
 
@@ -526,7 +525,7 @@ async fn read_body(
     tx: &mpsc::Sender<Result<Bytes>>,
     keep_alive: bool,
     key: &str,
-    pool: parking_lot::Mutex<HashMap<String, Vec<IdleConn>>>,
+    pool: Arc<parking_lot::Mutex<HashMap<String, Vec<IdleConn>>>>,
     idle_timeout: Duration,
     max_idle: usize,
 ) -> bool {

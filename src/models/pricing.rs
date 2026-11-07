@@ -176,7 +176,7 @@ impl PricingRegistry {
                 .context("metadata endpoint is not a URL")?,
         )
         .header("Accept", "application/json")
-        .header("User-Agent", crate::httpx::v2_user_agent());
+        .header("User-Agent", &crate::httpx::v2_user_agent());
         let response = client.execute(request).await?;
         if !response.status.is_success() {
             return Err(anyhow!(
@@ -194,7 +194,7 @@ impl PricingRegistry {
 
     pub fn decide(&self, model: &str) -> AnonymousDecision {
         let state = self.state.read();
-        let price = state.models.get(model);
+        let price = state.models.get(model).cloned();
         let ready = state.updated_at.is_some() && !state.models.is_empty();
         drop(state);
         let name_free = is_free_model(model);
@@ -364,9 +364,9 @@ pub fn decode_metadata(data: &[u8]) -> Result<HashMap<String, Price>> {
                     output_cost: number_at(cost, "output"),
                     cache_read_cost: number_at(cost, "cache_read"),
                     cache_write_cost: number_at(cost, "cache_write"),
-                    context_window: limit.map(|limit| jsonutil::get_int(limit, "context")),
-                    max_input: limit.map(|limit| jsonutil::get_int(limit, "input")),
-                    max_output: limit.map(|limit| jsonutil::get_int(limit, "output")),
+                    context_window: limit.map(|limit| jsonutil::get_int(limit, "context")).unwrap_or(0),
+                    max_input: limit.map(|limit| jsonutil::get_int(limit, "input")).unwrap_or(0),
+                    max_output: limit.map(|limit| jsonutil::get_int(limit, "output")).unwrap_or(0),
                     deprecated: metadata_deprecated(model),
                 }
                 .normalize(),

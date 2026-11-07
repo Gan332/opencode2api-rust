@@ -2,7 +2,7 @@
 
 mod json;
 mod password;
-mod persistence;
+pub mod persistence;
 mod placeholder;
 mod proxy;
 mod rotation;
@@ -12,11 +12,11 @@ mod tier;
 
 pub use json::strip_json_comments;
 pub use password::{hash_password, verify_password};
-pub use persistence::save_atomic;
+pub use persistence::{save_atomic, save_bytes_atomic};
 pub use placeholder::{drop_placeholder_keys, is_placeholder_key};
 pub use proxy::{parse_proxy_entry, redact_url, resolve_proxy_files};
 pub use rotation::{RotationConfig, RotationGroup, SOTA_MODELS, is_sota};
-pub use secrets::{fingerprint, key_display_id, mask_value, Redactor, SecretRedactor};
+pub use secrets::{fingerprint, key_display_id, mask_value, secret_redactor, Redactor};
 pub use server_keys::ServerKeyMetadata;
 pub use tier::Tier;
 
@@ -577,7 +577,7 @@ fn normalize_proxy_bindings(cfg: &mut Config) -> Result<()> {
     for key in cfg.zen_keys.iter().chain(cfg.go_keys.iter()) {
         let fp = fingerprint(key);
         key_map.insert(key.clone(), fp.clone());
-        key_map.insert(fp, fp);
+        key_map.insert(fp.clone(), fp);
     }
     let mut known_proxies = BTreeMap::new();
     for raw in cfg.runtime_proxies() {

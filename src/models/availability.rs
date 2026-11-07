@@ -53,7 +53,7 @@ pub struct AvailabilityRegistry {
 
 impl AvailabilityRegistry {
     pub fn load(path: &str) -> Result<Self> {
-        let mut items = HashMap::new();
+        let mut items: HashMap<String, Availability> = HashMap::new();
         if !path.is_empty() {
             match std::fs::read(path) {
                 Ok(data) => {

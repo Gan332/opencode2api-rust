@@ -77,7 +77,7 @@ fn sorted_keys(items: &HashSet<String>) -> Vec<String> {
 
 fn load_catalog_cache(path: &str) -> Result<CatalogCache> {
     if path.is_empty() {
-        return Err(std::io::ErrorKind::NotFound.into());
+        return Err(std::io::Error::from(std::io::ErrorKind::NotFound).into());
     }
     let data = std::fs::read(path)?;
     let mut cache: CatalogCache = serde_json::from_slice(&data)?;

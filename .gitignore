@@ -1,3 +1,4 @@
+# Local credentials, deployment backups, and verification artifacts
 .key
 config.json
 config.json.bak
@@ -17,6 +18,9 @@ coverage.out
 *.rotation.json
 .rotation-*.tmp
 
-# Local credentials, deployment backups, and verification artifacts
 .local/
 *.availability.json
+
+# Rust build output
+/target/
+**/*.rs.bk

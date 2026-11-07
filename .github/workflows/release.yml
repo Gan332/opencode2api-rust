@@ -12,11 +12,15 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
+  packages: write
 
 concurrency:
   group: release-${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
   cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   prepare:
@@ -48,186 +52,118 @@ jobs:
     name: Verify source
     runs-on: ubuntu-latest
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Build
-        run: go build ./...
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-verify
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --all-targets
 
   build:
-    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    name: Build ${{ matrix.target }}
     needs: [prepare, verify]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - goos: linux
-            goarch: amd64
-            extension: ""
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
             archive: tar.gz
-          - goos: linux
-            goarch: arm64
-            extension: ""
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
             archive: tar.gz
-          - goos: windows
-            goarch: amd64
-            extension: .exe
+            cross: true
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
             archive: zip
-          - goos: windows
-            goarch: arm64
-            extension: .exe
-            archive: zip
-          - goos: darwin
-            goarch: amd64
-            extension: ""
+            rustflags: "-C target-feature=+crt-static"
+          - os: macos-latest
+            target: x86_64-apple-darwin
             archive: tar.gz
-          - goos: darwin
-            goarch: arm64
-            extension: ""
+          - os: macos-latest
+            target: aarch64-apple-darwin
             archive: tar.gz
 
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Prepare package name
-        id: metadata
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
+          save-if: false
+      - name: Install musl tools
+        if: contains(matrix.target, 'linux-musl') && !matrix.cross
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
+      - name: Build
         shell: bash
         env:
-          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          OPENCODE2API_VERSION: ${{ needs.prepare.outputs.release_tag }}
+          RUSTFLAGS: ${{ matrix.rustflags }}
         run: |
-          package_name="opencode2api_${RELEASE_TAG}_${{ matrix.goos }}_${{ matrix.goarch }}"
-          echo "package_name=$package_name" >> "$GITHUB_OUTPUT"
-
-      - name: Build and package
-        shell: bash
-        env:
-          CGO_ENABLED: "0"
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
-          PACKAGE_NAME: ${{ steps.metadata.outputs.package_name }}
-          EXTENSION: ${{ matrix.extension }}
-          ARCHIVE_FORMAT: ${{ matrix.archive }}
-        run: |
-          mkdir -p "dist/$PACKAGE_NAME"
-          go build -trimpath -ldflags="-s -w -X main.version=$RELEASE_TAG" -o "dist/$PACKAGE_NAME/opencode2api$EXTENSION" ./cmd/opencode2api
-          cp README.md README.zh-CN.md README.vi.md README.it.md LICENSE config.example.json "dist/$PACKAGE_NAME/"
-          cp -r docs "dist/$PACKAGE_NAME/"
-          if [[ "$ARCHIVE_FORMAT" == "zip" ]]; then
-            (cd dist && zip -q -r "$PACKAGE_NAME.zip" "$PACKAGE_NAME")
-            archive="$PACKAGE_NAME.zip"
+          if [[ "${{ matrix.cross }}" == "true" ]]; then
+            cross build --release --locked --target "${{ matrix.target }}"
           else
-            tar -C dist -czf "dist/$PACKAGE_NAME.tar.gz" "$PACKAGE_NAME"
-            archive="$PACKAGE_NAME.tar.gz"
+            cargo build --release --locked --target "${{ matrix.target }}"
           fi
-          (cd dist && sha256sum "$archive" > "$archive.sha256")
-
-      - name: Upload release files
-        uses: actions/upload-artifact@v4
+      - name: Package
+        id: package
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          TARGET: ${{ matrix.target }}
+          ARCHIVE: ${{ matrix.archive }}
+          EXTENSION: ${{ endsWith(matrix.target, 'windows-msvc') && '.exe' || '' }}
+        run: |
+          package_name="opencode2api_${RELEASE_TAG}_${TARGET}"
+          mkdir -p "dist/$package_name"
+          cp "target/$TARGET/release/opencode2api${EXTENSION}" "dist/$package_name/"
+          cp README.md README.zh-CN.md README.vi.md README.it.md LICENSE config.example.json "dist/$package_name/" 2>/dev/null || true
+          cp -r docs "dist/$package_name/" 2>/dev/null || true
+          if [[ "$ARCHIVE" == "zip" ]]; then
+            (cd dist && zip -q -r "$package_name.zip" "$package_name")
+            echo "asset=dist/$package_name.zip" >> "$GITHUB_OUTPUT"
+          else
+            tar -C dist -czf "dist/$package_name.tar.gz" "$package_name"
+            echo "asset=dist/$package_name.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+          echo "name=$package_name" >> "$GITHUB_OUTPUT"
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.metadata.outputs.package_name }}
-          path: |
-            dist/${{ steps.metadata.outputs.package_name }}.${{ matrix.archive }}
-            dist/${{ steps.metadata.outputs.package_name }}.${{ matrix.archive }}.sha256
-          if-no-files-found: error
+          tag_name: ${{ needs.prepare.outputs.release_tag }}
+          files: ${{ steps.package.outputs.asset }}
+          fail_on_unmatched_files: true
 
-  container:
-    name: Publish GHCR image
-    needs: [prepare, verify]
+  image:
+    name: Build GHCR image
+    needs: [prepare, verify, build]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
     steps:
-      - name: Check out source
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate image metadata
-        id: image_metadata
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ needs.prepare.outputs.image_name }}
-          tags: |
-            type=raw,value=${{ needs.prepare.outputs.release_tag }}
-            type=semver,pattern={{version}},value=${{ needs.prepare.outputs.release_tag }}
-            type=semver,pattern={{major}}.{{minor}},value=${{ needs.prepare.outputs.release_tag }},enable=${{ !contains(needs.prepare.outputs.release_tag, '-') }}
-            type=semver,pattern={{major}},value=${{ needs.prepare.outputs.release_tag }},enable=${{ !contains(needs.prepare.outputs.release_tag, '-') }}
-          labels: |
-            org.opencontainers.image.title=opencode2api
-            org.opencontainers.image.description=OpenAI-compatible API gateway for OpenCode Zen and Go
-            org.opencontainers.image.licenses=GPL-3.0-or-later
-
-      - name: Build and push image
-        uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.image_metadata.outputs.tags }}
-          labels: ${{ steps.image_metadata.outputs.labels }}
+          tags: |
+            ${{ needs.prepare.outputs.image_name }}:${{ needs.prepare.outputs.release_tag }}
+            ${{ needs.prepare.outputs.image_name }}:latest
           build-args: |
             VERSION=${{ needs.prepare.outputs.release_tag }}
-          cache-from: type=gha,scope=container
-          cache-to: type=gha,mode=max,scope=container
-          provenance: mode=max
-          sbom: true
-
-  release:
-    name: Publish GitHub Release
-    needs: [prepare, build, container]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download release files
-        uses: actions/download-artifact@v4
-        with:
-          pattern: opencode2api_*
-          path: release-files
-          merge-multiple: true
-
-      - name: Create or update release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
-        run: |
-          release_type=()
-          if [[ "$RELEASE_TAG" == *-* ]]; then
-            release_type+=(--prerelease)
-          fi
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release-files/* --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$RELEASE_TAG" release-files/* "${release_type[@]}" --generate-notes --title "$RELEASE_TAG" --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY"
-          fi
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

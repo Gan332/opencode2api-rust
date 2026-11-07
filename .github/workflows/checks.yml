@@ -13,50 +13,74 @@ concurrency:
   group: checks-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
 jobs:
-  build:
-    name: Go ${{ matrix.go }} / ${{ matrix.os }}
+  format:
+    name: Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: clippy
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
+      - run: cargo clippy --all-targets -- -D warnings
+
+  test:
+    name: Test / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        go: ["1.24.x", stable]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
         with:
-          go-version: ${{ matrix.go }}
-          cache: true
-      - name: Vet
-        run: go vet ./...
-      - name: Build
-        run: go build -trimpath ./cmd/opencode2api
+          shared-key: test-${{ matrix.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo test --all-targets
 
-  format:
-    name: Formatting and WebUI syntax
-    runs-on: ubuntu-latest
+  build:
+    name: Build / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
         with:
-          go-version-file: go.mod
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Check Go formatting
+          shared-key: build-${{ matrix.os }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Build release binary
+        shell: bash
+        run: cargo build --release --locked
+      - name: Verify single-file executable
         shell: bash
         run: |
-          unformatted="$(gofmt -l .)"
-          if [ -n "$unformatted" ]; then
-            printf '%s\n' "$unformatted"
-            exit 1
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            test -f target/release/opencode2api.exe
+          else
+            test -x target/release/opencode2api
           fi
-      - name: Check WebUI syntax
-        shell: bash
-        run: |
-          for f in webui/js/*.js webui/js/pages/*.js; do
-            node --input-type=module --check < "$f" || { echo "syntax error: $f" >&2; exit 1; }
-          done
-      - name: Check container entrypoint syntax
-        run: sh -n docker-entrypoint.sh

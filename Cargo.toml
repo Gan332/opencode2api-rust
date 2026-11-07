@@ -1,0 +1,66 @@
+[package]
+name = "opencode2api"
+version = "1.4.7"
+edition = "2021"
+rust-version = "1.82"
+description = "OpenAI-compatible gateway for OpenCode Zen/Go with WARP egress"
+license = "GPL-3.0-or-later"
+build = "build.rs"
+
+[[bin]]
+name = "opencode2api"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["http1", "json", "tokio"] }
+base64 = "0.22"
+boringtun = "0.6"
+brotli = "7"
+bytes = "1"
+flate2 = "1"
+futures-util = "0.3"
+hex = "0.4"
+http = "1"
+http-body-util = "0.1"
+httparse = "1"
+indexmap = { version = "2", features = ["serde"] }
+mime_guess = "2"
+once_cell = "1"
+parking_lot = "0.12"
+rand = "0.8"
+regex = "1"
+rust-embed = { version = "8", features = ["compressed"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+smoltcp = { version = "0.11", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-udp"] }
+socket2 = { version = "0.5", features = ["all"] }
+subtle = "2"
+thiserror = "2"
+time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+tokio-util = { version = "0.7", features = ["io"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+url = "2"
+webpki-roots = "0.26"
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+zstd = "0.13"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+debug = 1

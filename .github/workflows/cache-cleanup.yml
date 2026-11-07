@@ -1,0 +1,80 @@
+name: Cache cleanup
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Checks"]
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  prune:
+    name: Prune stale GitHub Actions caches
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      MAX_AGE_DAYS: 7
+      MAX_TOTAL_BYTES: 6442450944
+      KEEP_PER_KEY: 3
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const maxAgeMs = Number(process.env.MAX_AGE_DAYS) * 86400000;
+            const maxTotal = Number(process.env.MAX_TOTAL_BYTES);
+            const keepPerKey = Number(process.env.KEEP_PER_KEY);
+
+            const all = [];
+            for (let page = 1; ; page++) {
+              const { data } = await github.rest.actions.getActionsCacheList({
+                owner, repo, per_page: 100, page,
+              });
+              if (!data.actions_caches.length) break;
+              all.push(...data.actions_caches);
+              if (all.length >= data.total_count) break;
+            }
+
+            const now = Date.now();
+            const byKey = new Map();
+            const doomed = new Set();
+
+            for (const cache of all) {
+              const when = Date.parse(cache.last_accessed_at || cache.created_at);
+              const key = cache.key;
+              if (!byKey.has(key)) byKey.set(key, []);
+              byKey.get(key).push(cache);
+              if (now - when > maxAgeMs) doomed.add(cache.id);
+            }
+
+            for (const [, entries] of byKey) {
+              entries.sort((a, b) => Date.parse(b.last_accessed_at || b.created_at) - Date.parse(a.last_accessed_at || a.created_at));
+              for (const stale of entries.slice(keepPerKey)) doomed.add(stale.id);
+            }
+
+            let remaining = all.filter((c) => !doomed.has(c.id));
+            let total = remaining.reduce((sum, c) => sum + c.size_in_bytes, 0);
+            remaining.sort((a, b) => Date.parse(a.last_accessed_at || a.created_at) - Date.parse(b.last_accessed_at || b.created_at));
+            while (total > maxTotal && remaining.length) {
+              const oldest = remaining.shift();
+              doomed.add(oldest.id);
+              total -= oldest.size_in_bytes;
+            }
+
+            core.summary.addHeading("Cache cleanup");
+            core.summary.addRaw(`Scanned ${all.length} caches, deleting ${doomed.size}.`);
+            await core.summary.write();
+
+            for (const id of doomed) {
+              try {
+                await github.rest.actions.deleteActionsCacheById({ owner, repo, cache_id: id });
+              } catch (error) {
+                core.warning(`failed to delete cache ${id}: ${error.message}`);
+              }
+            }
